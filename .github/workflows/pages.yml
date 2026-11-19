@@ -32,7 +32,11 @@ jobs:
 
       # Runs that can't be read are listed on the site with the reason and flagged as
       # warnings on this workflow run; they don't stop the rest of the site publishing.
+      # PCRD_PASSWORD (repo secret) lets the build open Bio-Rad .pcrd files. Secrets are not
+      # given to workflows started from forks, and GitHub masks the value in logs.
       - run: python tools/build_site.py --out _site
+        env:
+          PCRD_PASSWORD: ${{ secrets.PCRD_PASSWORD }}
 
       - uses: actions/configure-pages@v6
 
