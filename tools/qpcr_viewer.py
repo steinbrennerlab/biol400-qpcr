@@ -6,16 +6,15 @@ and browse amplification and melt curves for any group of wells they select.
 
 Supported inputs
 ----------------
+* ``.pcrd``  CFX Manager / Maestro data file. It's an encrypted zip, so reading it needs
+             the Bio-Rad password in the PCRD_PASSWORD environment variable. Includes the
+             plate setup (sample names, targets, well types) if those were entered in CFX.
 * ``.zpcr``  raw run file written by a CFX96 / CFX Opus instrument (read directly).
 * ``.rdml``  RDML export from CFX Maestro / CFX Manager (File > Export > RDML).
 * Bio-Rad CSV / XLSX data-sheet exports ("Export All Data Sheets"), given as a
   folder or as individual files: Quantification Amplification Results,
   Melt Curve RFU Results, and optionally Quantification Cq Results /
   Quantification Summary / Melt Curve Peak Results for sample names.
-
-``.pcrd`` files are password-protected archives that only Bio-Rad software can
-open. Open the .pcrd in CFX Maestro and export RDML (or the data sheets), then
-run this script on the export.
 
 Usage
 -----
@@ -36,6 +35,7 @@ import csv
 import datetime as dt
 import io
 import json
+import os
 import re
 import struct
 import sys
@@ -54,6 +54,10 @@ ROWS = "ABCDEFGHIJKLMNOP"
 
 class InputError(Exception):
     pass
+
+
+class PcrdPasswordMissing(InputError):
+    """A .pcrd was the only usable run file, but PCRD_PASSWORD isn't set."""
 
 
 # --------------------------------------------------------------------------
@@ -192,16 +196,44 @@ def read_zpcr(path: Path):
 
     reads = [parse_plateread(z.read(n)) for n in names]
     rows, cols = reads[0][2], reads[0][3]
-    run = new_run(rows, cols)
+    if not all("step" in h for h, *_ in reads):
+        raise InputError("could not decode plate-read headers in this .zpcr")
+    run = runs_from_reads([(h, ch) for h, ch, *_ in reads], steps, rows, cols)
 
+    run["meta"].update(
+        source_format="Bio-Rad raw run file (.zpcr)",
+        run_date=_run_date(reads[0][0].get("date", "")),
+        instrument=f"Bio-Rad CFX ({info.get('BlockDescription', '96')} block, serial {info.get('BaseSerialNumber', '?')})",
+        protocol=describe_protocol(proto_txt),
+        rfu_note="Raw fluorescence as read by the instrument (no Bio-Rad dye calibration or "
+                 "background correction applied).",
+    )
+    if "ended" not in z.namelist():
+        run["meta"]["notes"].append("This run file has no 'ended' marker: the run may have been "
+                                    "stopped early.")
+    return run
+
+
+def _run_date(s: str) -> str:
+    try:
+        return dt.datetime.strptime(s, "%a, %d %b %Y %H:%M:%S GMT").strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return s
+
+
+def runs_from_reads(reads, steps, rows, cols):
+    """Build a run from plate reads, shared by the .zpcr and .pcrd readers.
+
+    reads: [(hdr, chans)] where hdr has 'step' (0-based index among TEMP steps) and
+    'repeat' (1-based cycle or melt step), and chans is 6 lists of per-well mean RFU.
+    steps: parse_protocol() output, used to tell the melt step (it has an INC) and its temps.
+    """
+    run = new_run(rows, cols)
     # Group reads by protocol step. A step with an INC is a melt; the other read
     # step is the amplification (quantification) step.
     groups: dict[int, list] = {}
-    if all("step" in h for h, *_ in reads):
-        for h, ch, *_ in reads:
-            groups.setdefault(h["step"], []).append((h, ch))
-    else:  # fallback: assume reads are in order, split where block temp starts climbing
-        raise InputError("could not decode plate-read headers in this .zpcr")
+    for h, ch in reads:
+        groups.setdefault(h["step"], []).append((h, ch))
 
     amp_step = melt_step = None
     for s in groups:
@@ -219,7 +251,7 @@ def read_zpcr(path: Path):
         for c in active:
             chn = get_channel(run, CFX96_CHANNELS[c])
             for w in range(rows * cols):
-                chn["amp"][well_name(w // cols, w % cols)] = [round(ch[c][w], 2) for _, ch in g]
+                chn["amp"][well_name(w // cols, w % cols)] = [_rfu(ch[c][w]) for _, ch in g]
     if melt_step is not None:
         g = sorted(groups[melt_step], key=lambda x: x[0]["repeat"])
         st = steps[melt_step]
@@ -227,24 +259,105 @@ def read_zpcr(path: Path):
         for c in active:
             chn = get_channel(run, CFX96_CHANNELS[c])
             for w in range(rows * cols):
-                chn["melt"][well_name(w // cols, w % cols)] = [round(ch[c][w], 2) for _, ch in g]
+                chn["melt"][well_name(w // cols, w % cols)] = [_rfu(ch[c][w]) for _, ch in g]
+    return run
 
-    first_date = reads[0][0].get("date", "")
+
+def _rfu(v):
+    """Round to 0.01 RFU; NaN/inf become null (JSON.parse rejects NaN)."""
+    return round(v, 2) if v == v and abs(v) != float("inf") else None
+
+
+# --------------------------------------------------------------------------
+# .pcrd  (CFX Manager / Maestro data file: ZipCrypto zip around one XML file)
+# --------------------------------------------------------------------------
+# CFX well types -> the short names Bio-Rad uses in its exports
+PCRD_WELL_TYPES = {"wcSample": "Unkn", "wcNTC": "NTC", "wcStandard": "Std", "wcPositiveControl": "Pos Ctrl",
+                   "wcNegativeControl": "Neg Ctrl", "wcNRT": "NRT", "wcNTP": "NTP", "wcBlank": "Blank"}
+
+
+def pcrd_password() -> bytes | None:
+    pw = os.environ.get("PCRD_PASSWORD", "").strip()
+    return pw.encode("utf-8") if pw else None
+
+
+def read_pcrd(path: Path, password: bytes | None = None):
+    password = password or pcrd_password()
+    if not password:
+        raise PcrdPasswordMissing(f"{path.name}: reading .pcrd files needs the Bio-Rad password in the "
+                                  "PCRD_PASSWORD environment variable")
     try:
-        run_date = dt.datetime.strptime(first_date, "%a, %d %b %Y %H:%M:%S GMT").strftime("%Y-%m-%d %H:%M UTC")
-    except ValueError:
-        run_date = first_date
+        z = zipfile.ZipFile(path)
+        entry = z.infolist()[0]
+        raw = z.read(entry, pwd=password)
+    except RuntimeError as e:          # zipfile raises RuntimeError("Bad password for file ...")
+        raise InputError(f"{path.name}: could not decrypt (wrong PCRD_PASSWORD?)") from e
+    except (zipfile.BadZipFile, IndexError) as e:
+        raise InputError(f"{path.name}: not a valid .pcrd file ({e})") from e
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as e:
+        raise InputError(f"{path.name}: decrypted, but the contents aren't XML ({e})") from e
+
+    proto_el = root.find("protocol2")
+    proto_txt = proto_el.get("runDefinition", "") if proto_el is not None else ""
+    steps = parse_protocol(proto_txt)
+
+    reads, rows, cols = [], None, None
+    for pr in root.iterfind("runData/plateReadDataVector/plateRead/PlateRead"):
+        h = pr.find("Hdr/PlateReadDataHeader")
+        data = pr.findtext("Data/PAr")
+        if h is None or not data:
+            continue
+        nrows, ncols = int(h.findtext("NumRows", "0")), int(h.findtext("NumCols", "0"))
+        nch = int(h.findtext("ChCount", "6") or 6)
+        vals = [float(x) for x in data.split(";") if x]
+        per_ch = nrows * ncols                    # includes the reference row (9 x 12 on a 96-well block)
+        if len(vals) != nch * per_ch * 4:
+            raise InputError(f"{path.name}: plate read has {len(vals)} values, expected "
+                             f"{nch} channels x {per_ch} positions x 4")
+        if (nrows, ncols) != (9, 12):
+            raise InputError(f"{path.name}: unsupported plate layout ({nrows} x {ncols} positions per read); "
+                             "only 96-well CFX runs are supported")
+        rows, cols = 8, 12
+        chans = [[vals[(c * per_ch + w) * 4] for w in range(rows * cols)] for c in range(nch)]
+        chans += [[0.0] * (rows * cols)] * (6 - nch)
+        reads.append(({"step": int(h.findtext("Step")), "repeat": int(h.findtext("Cycle")),
+                       "date": h.findtext("Time", "")}, chans))
+    if not reads:
+        raise InputError(f"{path.name}: no plate reads found (the run may not have started)")
+    run = runs_from_reads(reads, steps, rows, cols)
+
+    # Plate setup: sample names, targets and well types, if they were entered in CFX.
+    setup = []
+    for layer in root.iterfind("plateSetup2/dyeLayersList/dyeLayer"):
+        for ws in layer.iterfind("wellSamples/wellSample"):
+            i = int(ws.get("plateIndex", "-1"))
+            if 0 <= i < rows * cols:
+                setup.append((well_name(i // cols, i % cols), ws.get("sampleId", "").strip(),
+                              ws.get("geneName", "").strip(), ws.get("wellSampleType", "")))
+    # Every well defaults to an unnamed "wcSample"; only record types when they say something.
+    informative = any(s or t for _, s, t, _ in setup) or len({k for *_, k in setup}) > 1
+    for well, sample, target, kind in setup:
+        info = run["wells"].setdefault(well, {})
+        if sample:
+            info["sample"] = sample
+        if target:
+            info["target"] = ", ".join(sorted(set(filter(None, [info.get("target"), target]))))
+        if informative and kind:
+            info["content"] = PCRD_WELL_TYPES.get(kind, kind.removeprefix("wc"))
+    run["wells"] = {w: i for w, i in run["wells"].items() if i}
+
+    info = {kv.findtext("Key"): (kv.findtext("Value") or "").strip().strip('"')
+            for kv in root.iterfind("protocolRunInfo/RunInfo/KeyValuePairs") if kv.findtext("Key")}
     run["meta"].update(
-        source_format="Bio-Rad raw run file (.zpcr)",
-        run_date=run_date,
+        source_format="Bio-Rad CFX data file (.pcrd)",
+        run_date=_run_date(reads[0][0]["date"]),
         instrument=f"Bio-Rad CFX ({info.get('BlockDescription', '96')} block, serial {info.get('BaseSerialNumber', '?')})",
         protocol=describe_protocol(proto_txt),
         rfu_note="Raw fluorescence as read by the instrument (no Bio-Rad dye calibration or "
                  "background correction applied).",
     )
-    if "ended" not in z.namelist():
-        run["meta"]["notes"].append("This run file has no 'ended' marker: the run may have been "
-                                    "stopped early.")
     return run
 
 
@@ -508,31 +621,31 @@ def load(inputs: list[Path]):
     files = []
     for p in inputs:
         if p.is_dir():
-            files += sorted(q for q in p.iterdir() if q.suffix.lower() in (".csv", ".xlsx", ".rdml", ".zpcr"))
+            files += sorted(q for q in p.iterdir() if q.suffix.lower() in (".csv", ".xlsx", ".rdml", ".zpcr", ".pcrd"))
         else:
             files.append(p)
     if not files:
         raise InputError("no input files found")
-    pcrd = [f for f in files if f.suffix.lower() == ".pcrd"]
-    if pcrd:
-        raise InputError(
-            f"{pcrd[0].name} is a password-protected Bio-Rad archive that only Bio-Rad software can read.\n"
-            "  Open it in CFX Maestro (free download from bio-rad.com), then either\n"
-            "    File > Export > Export RDML File...            -> run this script on the .rdml, or\n"
-            "    Export > Export All Data Sheets (CSV format)    -> run this script on that folder.\n"
-            "  Either export also carries the sample names and well types from the .pcrd.")
+    pc = [f for f in files if f.suffix.lower() == ".pcrd"]
     zp = [f for f in files if f.suffix.lower() == ".zpcr"]
     rd = [f for f in files if f.suffix.lower() == ".rdml"]
     tb = [f for f in files if f.suffix.lower() in (".csv", ".xlsx")]
-    if zp:
+    # Preference: .pcrd (has the plate setup) > .zpcr > RDML > CSV. Without a password a
+    # .pcrd is skipped in favour of any other run file of the same run.
+    use_pcrd = pc and (pcrd_password() or not (zp or rd or tb))
+    if use_pcrd:
+        run, src = read_pcrd(pc[0]), pc[0]      # raises PcrdPasswordMissing if no password
+    elif zp:
         run, src = read_zpcr(zp[0]), zp[0]
     elif rd:
         run, src = read_rdml(rd[0]), rd[0]
     elif tb:
         run, src = read_biorad_exports(tb), tb[0].parent if len(inputs) == 1 and inputs[0].is_dir() else tb[0]
     else:
-        raise InputError("unrecognised input; expected .zpcr, .rdml, or Bio-Rad CSV/XLSX exports")
-    if len(zp) + len(rd) > 1:
+        raise InputError("unrecognised input; expected .pcrd, .zpcr, .rdml, or Bio-Rad CSV/XLSX exports")
+    if pc and not use_pcrd:
+        run["meta"]["notes"].append(f"{pc[0].name} was not read (no PCRD_PASSWORD); using {src.name}.")
+    if len(pc) + len(zp) + len(rd) > 1:
         print(f"note: several run files given; using {src.name}", file=sys.stderr)
     run["meta"]["source_file"] = src.name
     return run, src

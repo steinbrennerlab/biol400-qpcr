@@ -4,7 +4,8 @@
 Each folder in inputs/ is one run:
 
     inputs/2026-11-17_lab3_AA/
-        <run file>     .zpcr (raw instrument file), .rdml, or Bio-Rad CSV/XLSX data sheets
+        <run file>     .pcrd (needs PCRD_PASSWORD), .zpcr (raw instrument file), .rdml,
+                       or Bio-Rad CSV/XLSX data sheets
         layout.csv     optional plate layout: Well, Sample, Target, Content (plate.csv also works)
         run.json       optional: {"title": "...", "date": "2026-11-17", "lab": "3", "section": "AA",
                                   "notes": "..."}
@@ -44,7 +45,8 @@ REPO = HERE.parent
 INDEX_TEMPLATE = HERE / "index_template.html"
 MARKER = ".qpcr-site"          # written into the output dir; only such a dir is ever wiped
 LAYOUT_NAMES = ("layout.csv", "plate.csv", "layout.xlsx", "plate.xlsx")
-RUN_SUFFIXES = (".zpcr", ".rdml", ".csv", ".xlsx")
+RUN_SUFFIXES = (".pcrd", ".zpcr", ".rdml", ".csv", ".xlsx")
+SINGLE_FILE_FORMATS = (".pcrd", ".zpcr", ".rdml")
 IN_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
 
@@ -92,12 +94,16 @@ def run_files(folder: Path, layout: Path | None) -> list[Path]:
 
 
 def guess_date(meta: dict, run: dict | None, folder: Path) -> str:
+    # run.json, then the folder name (local date, as people name runs), then the run file's
+    # timestamp, which is UTC: an evening run in Seattle carries the next day's date.
     if meta.get("date"):
         return meta["date"]
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", folder.name)
+    if m:
+        return m.group(1)
     if run and run["meta"].get("run_date"):
         return run["meta"]["run_date"][:10]
-    m = re.match(r"(\d{4}-\d{2}-\d{2})", folder.name)
-    return m.group(1) if m else ""
+    return ""
 
 
 def write_rfu_csvs(run: dict, dest: Path, base: str) -> list[dict]:
@@ -132,19 +138,20 @@ def build_run(folder: Path, out: Path) -> dict:
     layout = find_layout(folder)
     files = run_files(folder, layout)
     readable = [p for p in files if p.suffix.lower() in RUN_SUFFIXES]
-    pcrd = [p for p in files if p.suffix.lower() == ".pcrd"]
 
     if not readable:
         entry["date"] = guess_date(meta, None, folder)
         entry["status"] = "pending"
-        if pcrd:
-            entry["message"] = (f"{pcrd[0].name} is a Bio-Rad .pcrd file, which can't be read yet. "
-                                "Add a .zpcr, RDML or CSV export of this run to the folder.")
-        else:
-            entry["message"] = "No run file (.zpcr, .rdml or Bio-Rad CSV export) in this folder yet."
+        entry["message"] = "No run file (.pcrd, .zpcr, .rdml or Bio-Rad CSV export) in this folder yet."
         return entry
-
-    run, src = qv.load(readable)
+    try:
+        run, src = qv.load(readable)
+    except qv.PcrdPasswordMissing:
+        entry["date"] = guess_date(meta, None, folder)
+        entry["status"] = "pending"
+        entry["message"] = ("This run is a .pcrd file, and the build has no PCRD_PASSWORD to open it "
+                            "(set it as a repository secret, or as an environment variable locally).")
+        return entry
     if layout:
         qv.apply_layout(run, layout)
     title = entry["title"]
@@ -162,12 +169,16 @@ def build_run(folder: Path, out: Path) -> dict:
     (runs_dir / f"{rid}.json").write_text(
         json.dumps(run, separators=(",", ":"), ensure_ascii=False, allow_nan=False), encoding="utf-8")
 
-    single = src.suffix.lower() in (".zpcr", ".rdml")
-    used = [src] if single else [p for p in readable if p.suffix.lower() in (".csv", ".xlsx")]
-    for p in used + ([layout] if layout else []):
+    # Offer every raw run file in the folder (e.g. both the .pcrd and the instrument's .zpcr),
+    # the one that was read first.
+    single = [p for p in readable if p.suffix.lower() in SINGLE_FILE_FORMATS]
+    single.sort(key=lambda p: p != src)
+    tables = [] if src.suffix.lower() in SINGLE_FILE_FORMATS else \
+        [p for p in readable if p.suffix.lower() in (".csv", ".xlsx")]
+    for p in single + tables + ([layout] if layout else []):
         shutil.copy2(p, dl_dir / p.name)
-    downloads = [{"label": f"Run file (.{p.suffix.lstrip('.').lower()})" if single else p.name,
-                  "href": f"runs/{rid}/{p.name}"} for p in used]
+    downloads = [{"label": f"Run file (.{p.suffix.lstrip('.').lower()})", "href": f"runs/{rid}/{p.name}"} for p in single]
+    downloads += [{"label": p.name, "href": f"runs/{rid}/{p.name}"} for p in tables]
     if layout:
         downloads.append({"label": "Plate layout CSV", "href": f"runs/{rid}/{layout.name}"})
     downloads += write_rfu_csvs(run, dl_dir, rid)
@@ -181,8 +192,6 @@ def build_run(folder: Path, out: Path) -> dict:
         wells=run["plate"]["rows"] * run["plate"]["cols"], named_wells=named,
         has_layout=bool(layout or named),
     )
-    if pcrd:
-        entry["message"] = f"Also contains {pcrd[0].name}, which isn't used."
     return entry
 
 
