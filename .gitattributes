@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.zpcr binary
+*.pcrd binary
+*.rdml binary
+*.xlsx binary

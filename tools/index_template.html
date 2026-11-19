@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__SITE_TITLE__</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb; --surface-2: #f0efec;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --border: rgba(11,11,11,0.10); --accent: #2a78d6;
+  --warn: #9a6a00; --bad: #c03a39;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #262624;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --border: rgba(255,255,255,0.10); --accent: #3987e5;
+    --warn: #d9a530; --bad: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #262624;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --border: rgba(255,255,255,0.10); --accent: #3987e5;
+  --warn: #d9a530; --bad: #e66767;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px; }
+@media (max-width: 700px) { .wrap { padding: 16px; } }
+header { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; margin-bottom: 16px; }
+h1 { font-size: 24px; margin: 0 0 4px; font-weight: 650; }
+.intro { color: var(--ink-2); max-width: 760px; margin: 0; }
+.meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, select, input { font: inherit; color: inherit; }
+.btn { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { background: var(--surface-2); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.primary { background: var(--ink); color: var(--page); border-color: transparent; }
+.btn.primary:hover:not(:disabled) { background: var(--ink-2); }
+.btn:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+select, input[type=search] { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; }
+input[type=search] { width: 240px; max-width: 100%; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; min-width: 0; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.label { color: var(--ink-2); font-size: 12px; }
+.sub { color: var(--ink-2); font-size: 12px; }
+.spacer { flex: 1; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; font-size: 12px; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.date { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+td .title { font-weight: 600; }
+td .msg { font-size: 12px; margin-top: 2px; }
+td .msg.pending { color: var(--warn); }
+td .msg.error { color: var(--bad); }
+td .msg.note { color: var(--muted); }
+tr.inactive td .title { color: var(--ink-2); }
+.na { color: var(--muted); }
+.tag { display: inline-block; font-size: 11px; color: var(--ink-2); background: var(--surface-2); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+details.dl summary { cursor: pointer; color: var(--accent); white-space: nowrap; list-style: none; }
+details.dl summary::-webkit-details-marker { display: none; }
+details.dl summary::after { content: " ▾"; font-size: 10px; }
+details.dl[open] summary::after { content: " ▴"; }
+details.dl ul { margin: 6px 0 0; padding: 0; list-style: none; }
+details.dl li { margin: 2px 0; white-space: nowrap; }
+.empty { padding: 20px 10px; color: var(--muted); text-align: center; }
+details.help { color: var(--ink-2); font-size: 13px; }
+details.help summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+details.help li, details.help p { max-width: 820px; }
+code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="title"></h1>
+      <p class="intro" id="intro"></p>
+      <div class="meta" id="meta"></div>
+    </div>
+    <button class="btn" id="theme" type="button" aria-label="Toggle dark mode">◐ Theme</button>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <input type="search" id="q" placeholder="Search runs, samples, targets…" aria-label="Search runs">
+      <label class="label" id="lab-wrap" hidden>Lab <select id="lab"><option value="">All</option></select></label>
+      <label class="label" id="sec-wrap" hidden>Section <select id="sec"><option value="">All</option></select></label>
+      <span class="spacer"></span>
+      <button class="btn primary" id="export" type="button">Download Cq &amp; Tm (CSV)</button>
+    </div>
+    <div class="sub" id="export-note" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card">
+    <div class="table-wrap"><table id="runs"></table></div>
+  </section>
+
+  <section class="card">
+    <details class="help">
+      <summary>About this page</summary>
+      <ul>
+        <li>Click a run to open its viewer: pick wells on the plate map and look at amplification curves, melt curves and melt peaks with their Cq and Tm values. Each viewer page works offline once saved (File → Save page as).</li>
+        <li><b>Download Cq &amp; Tm</b> makes one CSV for every run currently shown, using each run's default settings (baseline cycles 3–15, auto threshold, auto peak threshold). To use your own threshold, open the run, adjust it there, and use that page's download button.</li>
+        <li><b>Downloads</b> for each run include the original instrument file, the plate layout, and the raw fluorescence (RFU) for every well as CSV, for analysis in Excel, R or Python.</li>
+        <li id="add-runs"></li>
+      </ul>
+    </details>
+  </section>
+</div>
+
+<script id="site-data" type="application/json">__SITE_DATA__</script>
+<script src="analysis.js"></script>
+<script>
+(() => {
+"use strict";
+const SITE = JSON.parse(document.getElementById("site-data").textContent);
+const RUNS = SITE.runs || [];
+const $ = id => document.getElementById(id);
+const h = (tag, props = {}, parent) => {
+  const e = document.createElement(tag);
+  for (const k in props) { if (k === "text") e.textContent = props[k]; else if (k === "cls") e.className = props[k]; else e.setAttribute(k, props[k]); }
+  if (parent) parent.appendChild(e);
+  return e;
+};
+
+// ---------- header ----------
+$("title").textContent = SITE.title || "qPCR runs";
+document.title = SITE.title || "qPCR runs";
+if (SITE.intro) $("intro").textContent = SITE.intro; else $("intro").remove();
+const meta = $("meta");
+const nOk = RUNS.filter(r => r.status === "ok").length;
+meta.append(`${nOk} run${nOk === 1 ? "" : "s"} · updated ${SITE.built}`);
+if (SITE.repo_url) {
+  meta.append(" · ");
+  h("a", { href: SITE.repo_url, text: "source on GitHub" }, meta);
+  const li = $("add-runs");
+  li.append("To add a run, put its files in a new folder under ");
+  h("a", { href: SITE.repo_url + "/tree/main/inputs", text: "inputs/" }, li);
+  li.append(" in the GitHub repository (see the README there). The site rebuilds itself in about a minute.");
+} else $("add-runs").remove();
+
+const root = document.documentElement;
+$("theme").addEventListener("click", () => {
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+});
+
+// ---------- run data, loaded lazily for counts, search and export ----------
+const cache = new Map();   // id -> Promise<{run, analyses[]}>
+function loadRun(r) {
+  if (!cache.has(r.id)) {
+    cache.set(r.id, fetch(r.data).then(resp => {
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.json();
+    }).then(run => ({ run, analyses: run.channels.map((_, i) => QPCR.analyze(run, i)) })));
+  }
+  return cache.get(r.id);
+}
+const loaded = new Map();  // id -> {run, analyses} once available
+let loadFailed = false;
+
+// ---------- filters ----------
+const uniq = key => [...new Set(RUNS.map(r => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+for (const [key, sel, wrap] of [["lab", "lab", "lab-wrap"], ["section", "sec", "sec-wrap"]]) {
+  const vals = uniq(key);
+  if (vals.length) { $(wrap).hidden = false; for (const v of vals) h("option", { value: v, text: v }, $(sel)); }
+  $(sel).addEventListener("change", render);
+}
+$("q").addEventListener("input", render);
+
+function searchText(r) {
+  let s = [r.title, r.folder, r.date, r.lab, r.section, r.notes, r.source_file].join(" ");
+  const L = loaded.get(r.id);
+  if (L) for (const w of Object.values(L.run.wells)) s += " " + [w.sample, w.target, w.content].join(" ");
+  return s.toLowerCase();
+}
+function shown() {
+  const q = $("q").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const lab = $("lab").value, sec = $("sec").value;
+  return RUNS.filter(r => (!lab || r.lab === lab) && (!sec || r.section === sec) &&
+    q.every(t => searchText(r).includes(t)));
+}
+
+// ---------- table ----------
+const hasLab = RUNS.some(r => r.lab), hasSec = RUNS.some(r => r.section);
+function cqCell(td, r) {
+  td.textContent = "";
+  if (r.status !== "ok") { td.textContent = "—"; td.classList.add("na"); return; }
+  const L = loaded.get(r.id);
+  if (!L) { td.textContent = loadFailed ? "—" : "…"; td.classList.add("na"); if (loadFailed) td.title = "Run data could not be loaded. If you opened this file directly, preview it with: python tools/build_site.py --serve"; return; }
+  td.classList.remove("na");
+  const parts = L.analyses.map((a, i) => {
+    const res = Object.values(a.res);
+    return { n: res.filter(x => x.cq != null).length, of: res.length, name: L.run.channels[i].name };
+  });
+  td.textContent = parts.length === 1 ? `${parts[0].n} of ${parts[0].of}` : parts.map(p => `${p.name}: ${p.n}`).join(" · ");
+}
+function render() {
+  const t = $("runs"); t.textContent = "";
+  const tr = h("tr", {}, h("thead", {}, t));
+  h("th", { text: "Date" }, tr);
+  h("th", { text: "Run" }, tr);
+  if (hasLab) h("th", { text: "Lab" }, tr);
+  if (hasSec) h("th", { text: "Section" }, tr);
+  h("th", { cls: "num", text: "Wells with a Cq" }, tr);
+  h("th", { text: "Samples" }, tr);
+  h("th", { text: "Downloads" }, tr);
+  const tb = h("tbody", {}, t);
+  const rows = shown();
+  if (!rows.length) { h("td", { colspan: 7, cls: "empty", text: RUNS.length ? "No runs match." : "No runs yet. Add a run folder under inputs/." }, h("tr", {}, tb)); }
+  for (const r of rows) {
+    const row = h("tr", { cls: r.status === "ok" ? "" : "inactive" }, tb);
+    h("td", { cls: "date", text: r.date || "" }, row);
+    const td = h("td", {}, row);
+    if (r.status === "ok") h("a", { cls: "title", href: r.viewer, text: r.title }, td);
+    else h("span", { cls: "title", text: r.title }, td);
+    if (r.status === "ok" && r.source_format) h("div", { cls: "msg note", text: r.source_format }, td);
+    if (r.notes) h("div", { cls: "msg note", text: r.notes }, td);
+    if (r.message) h("div", { cls: "msg " + (r.status === "ok" ? "note" : r.status), text: r.message }, td);
+    if (hasLab) h("td", { text: r.lab || "" }, row);
+    if (hasSec) h("td", { text: r.section || "" }, row);
+    cqCell(h("td", { cls: "num", "data-cq": r.id }, row), r);
+    const st = h("td", {}, row);
+    if (r.status === "ok") {
+      if (r.named_wells) h("span", { cls: "tag", text: `${r.named_wells} wells named` }, st);
+      else h("span", { cls: "na", text: "no layout yet" }, st);
+    }
+    const dl = h("td", {}, row);
+    if (r.downloads && r.downloads.length) {
+      const d = h("details", { cls: "dl" }, dl);
+      h("summary", { text: `${r.downloads.length} files` }, d);
+      const ul = h("ul", {}, d);
+      for (const f of r.downloads) h("a", { href: f.href, text: f.label, download: "" }, h("li", {}, ul));
+    }
+  }
+  const okShown = rows.filter(r => r.status === "ok").length;
+  $("export").disabled = !okShown;
+  $("export").textContent = `Download Cq & Tm for ${okShown} run${okShown === 1 ? "" : "s"} (CSV)`;
+}
+render();
+
+// Load run data a few at a time; fill in counts and enable sample-name search as it arrives.
+(async () => {
+  const queue = RUNS.filter(r => r.status === "ok");
+  const worker = async () => {
+    while (queue.length) {
+      const r = queue.shift();
+      try { loaded.set(r.id, await loadRun(r)); }
+      catch (e) { loadFailed = true; console.warn(`could not load ${r.data}:`, e); }
+      const td = document.querySelector(`td[data-cq="${CSS.escape(r.id)}"]`);
+      if (td) cqCell(td, r);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  if ($("q").value.trim()) render();   // sample names are searchable now
+})();
+
+// ---------- export ----------
+function csvEscape(v) { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+function download(name, rows) {
+  const blob = new Blob(["﻿" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("export").addEventListener("click", async () => {
+  const runs = shown().filter(r => r.status === "ok");
+  const note = $("export-note");
+  $("export").disabled = true;
+  note.textContent = `Preparing ${runs.length} runs…`;
+  const rows = [["Run", "Date", "Lab", "Section", "Channel", "Well", "Sample", "Target", "Type", "Cq", "Tm (°C)",
+                 "Other melt peaks", "Threshold", "Baseline cycles", "Peak threshold", "Run file"]];
+  const failed = [];
+  for (const r of runs) {
+    let L;
+    try { L = await loadRun(r); } catch (e) { failed.push(r.title); continue; }
+    L.analyses.forEach((A, ci) => {
+      for (const w of QPCR.wellsOf(L.run)) {
+        const res = A.res[w];
+        if (!res) continue;
+        const i = L.run.wells[w] || {};
+        rows.push([r.title, r.date, r.lab, r.section, L.run.channels[ci].name, w, i.sample || "", i.target || "", i.content || "",
+          res.cq == null ? "" : res.cq.toFixed(2), res.tm == null ? "" : res.tm.toFixed(1), QPCR.otherPeaks(res.peaks),
+          A.thr.toPrecision(4), `${A.base0}-${A.base1}`, A.pthr.toPrecision(3), r.source_file || ""]);
+      }
+    });
+  }
+  render();
+  if (rows.length > 1) download(`qpcr_results_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  note.textContent = failed.length
+    ? `Couldn't load ${failed.length} run(s): ${failed.join(", ")}.` + (location.protocol === "file:" ? " Preview the site with python tools/build_site.py --serve instead of opening the file directly." : "")
+    : `Downloaded ${rows.length - 1} wells from ${runs.length} runs.`;
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+name: Build and publish site
+
+# Rebuilds the site whenever anything on main changes (a new run folder, a layout edit,
+# a code change), and can be started by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publish at a time; a newer push replaces a build still waiting to publish.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The build uses only the standard library; openpyxl is for runs given as .xlsx exports.
+      - run: pip install openpyxl
+
+      # Runs that can't be read are listed on the site with the reason and flagged as
+      # warnings on this workflow run; they don't stop the rest of the site publishing.
+      - run: python tools/build_site.py --out _site
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
