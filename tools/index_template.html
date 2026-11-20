@@ -97,6 +97,7 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-r
       <input type="search" id="q" placeholder="Search runs, samples, targets…" aria-label="Search runs">
       <label class="label" id="lab-wrap" hidden>Lab <select id="lab"><option value="">All</option></select></label>
       <label class="label" id="sec-wrap" hidden>Section <select id="sec"><option value="">All</option></select></label>
+      <label class="label" id="mac-wrap" hidden>Machine <select id="mac"><option value="">All</option></select></label>
       <span class="spacer"></span>
       <button class="btn primary" id="export" type="button">Download Cq &amp; Tm (CSV)</button>
     </div>
@@ -173,7 +174,7 @@ let loadFailed = false;
 
 // ---------- filters ----------
 const uniq = key => [...new Set(RUNS.map(r => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-for (const [key, sel, wrap] of [["lab", "lab", "lab-wrap"], ["section", "sec", "sec-wrap"]]) {
+for (const [key, sel, wrap] of [["lab", "lab", "lab-wrap"], ["section", "sec", "sec-wrap"], ["machine", "mac", "mac-wrap"]]) {
   const vals = uniq(key);
   if (vals.length) { $(wrap).hidden = false; for (const v of vals) h("option", { value: v, text: v }, $(sel)); }
   $(sel).addEventListener("change", render);
@@ -181,20 +182,20 @@ for (const [key, sel, wrap] of [["lab", "lab", "lab-wrap"], ["section", "sec", "
 $("q").addEventListener("input", render);
 
 function searchText(r) {
-  let s = [r.title, r.folder, r.date, r.lab, r.section, r.notes, r.source_file].join(" ");
+  let s = [r.title, r.folder, r.date, r.lab, r.section, r.machine, r.serial, r.notes, r.source_file].join(" ");
   const L = loaded.get(r.id);
   if (L) for (const w of Object.values(L.run.wells)) s += " " + [w.sample, w.target, w.content].join(" ");
   return s.toLowerCase();
 }
 function shown() {
   const q = $("q").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const lab = $("lab").value, sec = $("sec").value;
-  return RUNS.filter(r => (!lab || r.lab === lab) && (!sec || r.section === sec) &&
+  const lab = $("lab").value, sec = $("sec").value, mac = $("mac").value;
+  return RUNS.filter(r => (!lab || r.lab === lab) && (!sec || r.section === sec) && (!mac || r.machine === mac) &&
     q.every(t => searchText(r).includes(t)));
 }
 
 // ---------- table ----------
-const hasLab = RUNS.some(r => r.lab), hasSec = RUNS.some(r => r.section);
+const hasLab = RUNS.some(r => r.lab), hasSec = RUNS.some(r => r.section), hasMac = RUNS.some(r => r.machine);
 function cqCell(td, r) {
   td.textContent = "";
   if (r.status !== "ok") { td.textContent = "—"; td.classList.add("na"); return; }
@@ -214,12 +215,13 @@ function render() {
   h("th", { text: "Run" }, tr);
   if (hasLab) h("th", { text: "Lab" }, tr);
   if (hasSec) h("th", { text: "Section" }, tr);
+  if (hasMac) h("th", { text: "Machine" }, tr);
   h("th", { cls: "num", text: "Wells with a Cq" }, tr);
   h("th", { text: "Samples" }, tr);
   h("th", { text: "Downloads" }, tr);
   const tb = h("tbody", {}, t);
   const rows = shown();
-  if (!rows.length) { h("td", { colspan: 7, cls: "empty", text: RUNS.length ? "No runs match." : "No runs yet. Add a run folder under inputs/." }, h("tr", {}, tb)); }
+  if (!rows.length) { h("td", { colspan: 9, cls: "empty", text: RUNS.length ? "No runs match." : "No runs yet. Add a run folder under inputs/." }, h("tr", {}, tb)); }
   for (const r of rows) {
     const row = h("tr", { cls: r.status === "ok" ? "" : "inactive" }, tb);
     h("td", { cls: "date", text: r.date || "" }, row);
@@ -231,6 +233,10 @@ function render() {
     if (r.message) h("div", { cls: "msg " + (r.status === "ok" ? "note" : r.status), text: r.message }, td);
     if (hasLab) h("td", { text: r.lab || "" }, row);
     if (hasSec) h("td", { text: r.section || "" }, row);
+    if (hasMac) {
+      const m = h("td", { text: r.machine || "" }, row);
+      if (r.serial && r.serial !== r.machine) { m.title = "Instrument serial " + r.serial; h("div", { cls: "msg note", text: r.serial }, m); }
+    }
     cqCell(h("td", { cls: "num", "data-cq": r.id }, row), r);
     const st = h("td", {}, row);
     if (r.status === "ok") {
@@ -281,7 +287,7 @@ $("export").addEventListener("click", async () => {
   const note = $("export-note");
   $("export").disabled = true;
   note.textContent = `Preparing ${runs.length} runs…`;
-  const rows = [["Run", "Date", "Lab", "Section", "Channel", "Well", "Sample", "Target", "Type", "Cq", "Tm (°C)",
+  const rows = [["Run", "Date", "Lab", "Section", "Machine", "Channel", "Well", "Sample", "Target", "Type", "Cq", "Tm (°C)",
                  "Other melt peaks", "Threshold", "Baseline cycles", "Peak threshold", "Run file"]];
   const failed = [];
   for (const r of runs) {
@@ -292,7 +298,7 @@ $("export").addEventListener("click", async () => {
         const res = A.res[w];
         if (!res) continue;
         const i = L.run.wells[w] || {};
-        rows.push([r.title, r.date, r.lab, r.section, L.run.channels[ci].name, w, i.sample || "", i.target || "", i.content || "",
+        rows.push([r.title, r.date, r.lab, r.section, r.machine || "", L.run.channels[ci].name, w, i.sample || "", i.target || "", i.content || "",
           res.cq == null ? "" : res.cq.toFixed(2), res.tm == null ? "" : res.tm.toFixed(1), QPCR.otherPeaks(res.peaks),
           A.thr.toPrecision(4), `${A.base0}-${A.base1}`, A.pthr.toPrecision(3), r.source_file || ""]);
       }

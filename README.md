@@ -16,7 +16,7 @@ Make a new folder under `inputs/`, one folder per run, and name it starting with
 inputs/2026-11-17_lab3_AA/
     <run file>      the run data (see below)
     layout.csv      optional: sample names for each well
-    run.json        optional: title, lab, section, notes
+    run.json        optional: title, lab, section, machine, notes
 ```
 
 **On github.com (no git needed):** open `inputs/`, choose **Add file → Upload files**, and drag
@@ -60,7 +60,20 @@ G1,water,PR1,NTC
 ```
 
 Without it, the folder name is used as the title and the date comes from the run file.
-`lab` and `section` become filters on the index page.
+`lab`, `section` and the machine become filters on the index page.
+
+### Machines
+
+Each run shows which qPCR machine it ran on. The build reads the instrument serial from the run
+file (or, if the file can't be opened, from its name) and looks it up under `"machines"` in
+`site.json`:
+
+```json
+"machines": {"CC016428": "Imaizumi right machine", "BR006315": "Imaizumi left machine"}
+```
+
+To name a new machine, add its serial there. To override the machine for one run, put
+`"machine": "..."` in its `run.json`.
 
 ## Previewing locally
 
@@ -83,7 +96,7 @@ fail instead.
 | `tools/analysis.js` | Baseline, threshold, Cq, −dF/dT, Tm. **The only copy of the analysis.** It's inlined into every viewer page and loaded by the index for the combined export, so the two always agree |
 | `tools/build_site.py` | Turns `inputs/*` into `_site/`: index, viewer pages, run JSON, raw files and RFU CSVs |
 | `tools/index_template.html` | The index page |
-| `site.json` | Site title and intro text |
+| `site.json` | Site title, intro text, and machine names by serial |
 | `.github/workflows/pages.yml` | Builds and publishes the site on every push to `main` |
 
 Only the Python standard library is needed (`openpyxl` only for `.xlsx` exports).

@@ -905,7 +905,7 @@ function renderHeader() {
   $("title").textContent = M.title || "qPCR run";
   if (M.back_url) { const b = $("back"); b.href = M.back_url; b.textContent = "← All runs"; b.hidden = false; }
   const meta = $("meta");
-  for (const v of [M.source_file, M.run_date && "Run " + M.run_date, M.instrument, M.layout_file && "Layout: " + M.layout_file,
+  for (const v of [M.source_file, M.run_date && "Run " + M.run_date, M.machine, M.instrument, M.layout_file && "Layout: " + M.layout_file,
                    RUN.channels.length === 1 ? "Channel: " + RUN.channels[0].name : null]) if (v) h("span", { text: v }, meta);
   const notes = $("notes");
   const lines = [M.protocol && "Protocol: " + M.protocol, M.rfu_note, ...(M.notes || [])].filter(Boolean);

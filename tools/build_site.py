@@ -8,7 +8,10 @@ Each folder in inputs/ is one run:
                        or Bio-Rad CSV/XLSX data sheets
         layout.csv     optional plate layout: Well, Sample, Target, Content (plate.csv also works)
         run.json       optional: {"title": "...", "date": "2026-11-17", "lab": "3", "section": "AA",
-                                  "notes": "..."}
+                                  "machine": "...", "notes": "..."}
+
+The machine is named from the instrument serial via "machines" in site.json, unless run.json
+gives one.
 
 Output (default _site/):
 
@@ -106,6 +109,18 @@ def guess_date(meta: dict, run: dict | None, folder: Path) -> str:
     return ""
 
 
+def find_machine(meta: dict, run: dict | None, files: list[Path], machines: dict) -> tuple[str, str]:
+    """(machine name, serial). run.json "machine" wins; otherwise the serial is taken from the
+    run data, or from the file names when the run couldn't be read, and named via site.json."""
+    serial = ""
+    m = re.search(r"serial (\w+)", (run or {}).get("meta", {}).get("instrument", ""))
+    if m and m.group(1) != "?":
+        serial = m.group(1)
+    else:
+        serial = next((s for p in files for s in machines if s.lower() in p.name.lower()), "")
+    return meta.get("machine") or machines.get(serial, serial), serial
+
+
 def write_rfu_csvs(run: dict, dest: Path, base: str) -> list[dict]:
     """Wide RFU tables (one row per cycle or temperature, one column per well) per channel."""
     wells = [qv.well_name(r, c) for r in range(run["plate"]["rows"]) for c in range(run["plate"]["cols"])]
@@ -129,15 +144,18 @@ def write_rfu_csvs(run: dict, dest: Path, base: str) -> list[dict]:
     return files
 
 
-def build_run(folder: Path, out: Path) -> dict:
+def build_run(folder: Path, out: Path, machines: dict | None = None) -> dict:
     rid = slugify(folder.name)
     entry = {"id": rid, "folder": folder.name, "title": folder.name, "date": "", "lab": "",
-             "section": "", "notes": "", "status": "ok", "message": "", "downloads": []}
+             "section": "", "machine": "", "serial": "", "notes": "", "status": "ok", "message": "",
+             "downloads": []}
+    machines = machines or {}
     meta = read_run_meta(folder)
     entry.update({k: meta[k] for k in ("title", "lab", "section", "notes") if meta.get(k)})
     layout = find_layout(folder)
     files = run_files(folder, layout)
     readable = [p for p in files if p.suffix.lower() in RUN_SUFFIXES]
+    entry["machine"], entry["serial"] = find_machine(meta, None, files, machines)
 
     if not readable:
         entry["date"] = guess_date(meta, None, folder)
@@ -160,6 +178,9 @@ def build_run(folder: Path, out: Path) -> dict:
     if entry["notes"]:
         run["meta"]["notes"].append(entry["notes"])
     entry["date"] = guess_date(meta, run, folder)
+    entry["machine"], entry["serial"] = find_machine(meta, run, files, machines)
+    if entry["machine"] and entry["machine"] != entry["serial"]:
+        run["meta"]["machine"] = entry["machine"]
 
     runs_dir = out / "runs"
     dl_dir = runs_dir / rid
@@ -221,16 +242,17 @@ def build(inputs: Path, out: Path, strict: bool = False) -> int:
     ids = set()
     for folder in folders:
         try:
-            e = build_run(folder, out)
+            e = build_run(folder, out, site.get("machines"))
         except Exception as ex:   # one bad run must not take the whole site down
             errors += 1
             msg = str(ex) if isinstance(ex, qv.InputError) else f"{type(ex).__name__}: {ex}"
             warn(msg, title=f"inputs/{folder.name}")
             e = {"id": slugify(folder.name), "folder": folder.name, "title": folder.name,
                  "date": guess_date({}, None, folder), "lab": "", "section": "", "notes": "",
+                 "machine": "", "serial": "",
                  "status": "error", "message": f"Couldn't read this run: {msg}", "downloads": []}
             try:
-                e.update({k: v for k, v in read_run_meta(folder).items() if k in ("title", "lab", "section", "date")})
+                e.update({k: v for k, v in read_run_meta(folder).items() if k in ("title", "lab", "section", "date", "machine")})
             except qv.InputError:
                 pass
         if e["id"] in ids:
