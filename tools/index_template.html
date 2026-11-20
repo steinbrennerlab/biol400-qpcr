@@ -44,8 +44,6 @@ button, select, input { font: inherit; color: inherit; }
 .btn { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
 .btn:disabled { opacity: .55; cursor: default; }
-.btn.primary { background: var(--ink); color: var(--page); border-color: transparent; }
-.btn.primary:hover:not(:disabled) { background: var(--ink-2); }
 .btn:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 select, input[type=search] { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; }
 input[type=search] { width: 240px; max-width: 100%; }
@@ -53,7 +51,6 @@ input[type=search] { width: 240px; max-width: 100%; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .label { color: var(--ink-2); font-size: 12px; }
 .sub { color: var(--ink-2); font-size: 12px; }
-.spacer { flex: 1; }
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
@@ -98,10 +95,7 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-r
       <label class="label" id="lab-wrap" hidden>Lab <select id="lab"><option value="">All</option></select></label>
       <label class="label" id="sec-wrap" hidden>Section <select id="sec"><option value="">All</option></select></label>
       <label class="label" id="mac-wrap" hidden>Machine <select id="mac"><option value="">All</option></select></label>
-      <span class="spacer"></span>
-      <button class="btn primary" id="export" type="button">Download Cq &amp; Tm (CSV)</button>
     </div>
-    <div class="sub" id="export-note" style="margin-top:8px"></div>
   </section>
 
   <section class="card">
@@ -112,8 +106,7 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-r
     <details class="help">
       <summary>About this page</summary>
       <ul>
-        <li>Click a run to open its viewer: pick wells on the plate map and look at amplification curves, melt curves and melt peaks with their Cq and Tm values. Each viewer page works offline once saved (File → Save page as).</li>
-        <li><b>Download Cq &amp; Tm</b> makes one CSV for every run currently shown, using each run's default settings (baseline cycles 3–15, auto threshold, auto peak threshold). To use your own threshold, open the run, adjust it there, and use that page's download button.</li>
+        <li>Click a run to open its viewer: select your wells on the plate map to see their amplification curves, melt curves and melt peaks, then download their Cq and Tm values from that page. Each viewer page works offline once saved (File → Save page as).</li>
         <li><b>Downloads</b> for each run include the original instrument file, the plate layout, and the raw fluorescence (RFU) for every well as CSV, for analysis in Excel, R or Python.</li>
         <li id="add-runs"></li>
       </ul>
@@ -158,7 +151,7 @@ $("theme").addEventListener("click", () => {
   root.dataset.theme = dark ? "light" : "dark";
 });
 
-// ---------- run data, loaded lazily for counts, search and export ----------
+// ---------- run data, loaded lazily for counts and search ----------
 const cache = new Map();   // id -> Promise<{run, analyses[]}>
 function loadRun(r) {
   if (!cache.has(r.id)) {
@@ -251,13 +244,10 @@ function render() {
       for (const f of r.downloads) h("a", { href: f.href, text: f.label, download: "" }, h("li", {}, ul));
     }
   }
-  const okShown = rows.filter(r => r.status === "ok").length;
-  $("export").disabled = !okShown;
-  $("export").textContent = `Download Cq & Tm for ${okShown} run${okShown === 1 ? "" : "s"} (CSV)`;
 }
 render();
 
-// Load run data a few at a time; fill in counts and enable sample-name search as it arrives.
+// Load run data a few at a time; fill in Cq counts and enable sample-name search as it arrives.
 (async () => {
   const queue = RUNS.filter(r => r.status === "ok");
   const worker = async () => {
@@ -273,43 +263,6 @@ render();
   if ($("q").value.trim()) render();   // sample names are searchable now
 })();
 
-// ---------- export ----------
-function csvEscape(v) { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
-function download(name, rows) {
-  const blob = new Blob(["﻿" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n")], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-$("export").addEventListener("click", async () => {
-  const runs = shown().filter(r => r.status === "ok");
-  const note = $("export-note");
-  $("export").disabled = true;
-  note.textContent = `Preparing ${runs.length} runs…`;
-  const rows = [["Run", "Date", "Lab", "Section", "Machine", "Channel", "Well", "Sample", "Target", "Type", "Cq", "Tm (°C)",
-                 "Other melt peaks", "Threshold", "Baseline cycles", "Peak threshold", "Run file"]];
-  const failed = [];
-  for (const r of runs) {
-    let L;
-    try { L = await loadRun(r); } catch (e) { failed.push(r.title); continue; }
-    L.analyses.forEach((A, ci) => {
-      for (const w of QPCR.wellsOf(L.run)) {
-        const res = A.res[w];
-        if (!res) continue;
-        const i = L.run.wells[w] || {};
-        rows.push([r.title, r.date, r.lab, r.section, r.machine || "", L.run.channels[ci].name, w, i.sample || "", i.target || "", i.content || "",
-          res.cq == null ? "" : res.cq.toFixed(2), res.tm == null ? "" : res.tm.toFixed(1), QPCR.otherPeaks(res.peaks),
-          A.thr.toPrecision(4), `${A.base0}-${A.base1}`, A.pthr.toPrecision(3), r.source_file || ""]);
-      }
-    });
-  }
-  render();
-  if (rows.length > 1) download(`qpcr_results_${new Date().toISOString().slice(0, 10)}.csv`, rows);
-  note.textContent = failed.length
-    ? `Couldn't load ${failed.length} run(s): ${failed.join(", ")}.` + (location.protocol === "file:" ? " Preview the site with python tools/build_site.py --serve instead of opening the file directly." : "")
-    : `Downloaded ${rows.length - 1} wells from ${runs.length} runs.`;
-});
 })();
 </script>
 </body>

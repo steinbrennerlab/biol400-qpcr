@@ -2,8 +2,13 @@
 
 A website for browsing and downloading Bio-Rad CFX qPCR runs from BIOL 400. Every run gets
 its own viewer page, where students select wells on a plate map and look at the amplification curves,
-melt curves and melt peaks with Cq and Tm values. The index page lists all runs and can
-download Cq and Tm values for many runs as one CSV.
+melt curves and melt peaks with Cq and Tm values. The index page lists all runs.
+
+Run pages open with no wells selected. Wells with a Cq are outlined in blue, but their Cq and Tm
+values only show once a student selects them. Students work out which wells are theirs from their
+notes, select them, check the curves, and download the Cq/Tm CSV from the run page. Numbered
+steps at the top of each run page say this. There is deliberately no "select all wells with a Cq"
+button and no site-wide Cq export.
 
 The site rebuilds itself (GitHub Actions → GitHub Pages) whenever anything in this repository
 changes. Nobody needs to install anything to add a run.
@@ -93,7 +98,7 @@ fail instead.
 |---|---|
 | `tools/qpcr_viewer.py` | Reads .pcrd / .zpcr / RDML / Bio-Rad CSV into one data structure and writes a standalone viewer page. It can also be run alone: `python tools/qpcr_viewer.py RUN.pcrd` |
 | `tools/viewer_template.html` | The run viewer page (no external dependencies) |
-| `tools/analysis.js` | Baseline, threshold, Cq, −dF/dT, Tm. **The only copy of the analysis.** It's inlined into every viewer page and loaded by the index for the combined export, so the two always agree |
+| `tools/analysis.js` | Baseline, threshold, Cq, −dF/dT, Tm. **The only copy of the analysis.** It's inlined into every viewer page and loaded by the index for its per-run Cq counts, so the two always agree |
 | `tools/build_site.py` | Turns `inputs/*` into `_site/`: index, viewer pages, run JSON, raw files and RFU CSVs |
 | `tools/index_template.html` | The index page |
 | `site.json` | Site title, intro text, and machine names by serial |
